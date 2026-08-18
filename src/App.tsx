@@ -45,9 +45,14 @@ export default function App() {
 
 
 
-  const handleConnectWallet = (address: string) => {
-    connectWallet()
+  const handleConnectWallet = () => {
+    try {
+      connectWallet();
+    } catch (err) {
+      console.error("Connect failed:", err);
+    }
   };
+
 
   const handleDisconnectWallet = () => {
     disconnectWallet()
@@ -58,7 +63,7 @@ export default function App() {
   };
 
   // Claim Bounty Handler
-  const handleClaimBounty = async (bountyId: string) => {
+  const handleClaimBounty = (bountyId: string) => {
     if (!wallet) {
       connectWallet()
       return;
@@ -109,6 +114,7 @@ export default function App() {
           onBack={() => handleNavigate("#/bounties")}
           onClaim={handleClaimBounty}
           onConnectWallet={() => connectWallet()}
+          showToast={showToast}
         />
       );
     }
@@ -171,7 +177,6 @@ export default function App() {
         <Navbar
           currentPath={currentPath}
           wallet={wallet}
-          onConnectClick={() => connectWallet()}
           onDisconnect={handleDisconnectWallet}
           navigate={handleNavigate}
         />

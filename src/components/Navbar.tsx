@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { Menu, X, LogOut, Briefcase, User } from "lucide-react";
+import { useWallet } from "../lib/genlayer/wallet";
 
 interface NavbarProps {
   currentPath: string;
   wallet: string | null;
-  onConnectClick: () => void;
   onDisconnect: () => void;
   navigate: (path: string) => void;
 }
 
-export default function Navbar({ currentPath, wallet, onConnectClick, onDisconnect, navigate }: NavbarProps) {
+export default function Navbar({ currentPath, wallet, onDisconnect, navigate }: NavbarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-
+  
+  const {connectWallet} = useWallet()
   const truncateWallet = (addr: string) => {
     return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
   };
@@ -21,6 +22,8 @@ export default function Navbar({ currentPath, wallet, onConnectClick, onDisconne
     { name: "Bounties", path: "#/bounties" },
     { name: "My Activity", path: "#/activity", requiresAuth: true },
   ];
+
+  
 
   const handleLinkClick = (path: string) => {
     navigate(path);
@@ -97,7 +100,7 @@ export default function Navbar({ currentPath, wallet, onConnectClick, onDisconne
           </div>
         ) : (
           <button
-            onClick={onConnectClick}
+            onClick={() => connectWallet()}
             className="bg-[#a3e635] text-black px-6 py-2 font-display font-bold uppercase text-xs rounded-none transition-transform active:scale-95 hover:bg-[#bbf7d0] cursor-pointer"
           >
             Connect Wallet
@@ -161,7 +164,7 @@ export default function Navbar({ currentPath, wallet, onConnectClick, onDisconne
             <button
               onClick={() => {
                 setIsOpen(false);
-                onConnectClick();
+                connectWallet();
               }}
               className="w-full py-3 bg-[#a3e635] text-black font-display text-sm tracking-wider uppercase font-bold mt-auto mb-6"
               style={{ borderRadius: "0px" }}

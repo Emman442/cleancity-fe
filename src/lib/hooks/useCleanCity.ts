@@ -6,7 +6,7 @@ import FootballBets from "../contracts/CleanCity";
 import { getContractAddress, getStudioUrl } from "../genlayer/client";
 import { useWallet } from "../genlayer/wallet";
 import { success, error, configError } from "../utils/toast";
-import type { Bounty, Submission } from "../contracts/types";
+import type { Bounty, Submission, WorkerProfile } from "../contracts/types";
 
 /**
  * Hook to get the FootballBets contract instance
@@ -46,6 +46,22 @@ export function useCleanCityContract(): FootballBets | null {
 }
 
 
+export function useWorkerSubmissions(wallet: string) {
+  const contract = useCleanCityContract();
+
+  return useQuery<Submission[], Error>({
+    queryKey: ["worker_submissions"],
+    queryFn: () => {
+      if (!contract) {
+        return Promise.resolve([]);
+      }
+      return contract.getWorkerSubmissions(wallet);
+    },
+    refetchOnWindowFocus: true,
+    staleTime: 2000,
+    enabled: !!contract, // Only run query if contract is available
+  });
+}
 export function useBounties() {
   const contract = useCleanCityContract();
 
@@ -71,12 +87,47 @@ export function useBounty(bountyId: string) {
     queryKey: ["bounty", bountyId],
     queryFn: () => {
       if (!contract) {
-        return Promise.resolve();
+        return Promise.resolve({} as Bounty);
       }
       return contract.getBounty(bountyId);
     },
     refetchOnWindowFocus: true,
     enabled: !!bountyId && !!contract, // Require both address and contract
+    staleTime: 2000,
+  });
+}
+
+export function useWorkerProfile(workerId: string) {
+  const contract = useCleanCityContract();
+
+  return useQuery<WorkerProfile, Error>({
+    queryKey: ["workerProfile", workerId],
+    queryFn: () => {
+      if (!contract) {
+        return Promise.resolve({} as WorkerProfile);
+      }
+      return contract.getWorkerProfile(workerId);
+    },
+    refetchOnWindowFocus: true,
+    enabled: !!workerId && !!contract, // Require both address and contract
+    staleTime: 2000,
+  });
+}
+
+
+export function useSubmission(submissionId: string) {
+  const contract = useCleanCityContract();
+
+  return useQuery<Submission, Error>({
+    queryKey: ["submission", submissionId],
+    queryFn: () => {
+      if (!contract) {
+        return Promise.resolve({} as Submission);
+      }
+      return contract.getSubmission(submissionId);
+    },
+    refetchOnWindowFocus: true,
+    enabled: !!submissionId && !!contract, // Require both address and contract
     staleTime: 2000,
   });
 }
@@ -203,6 +254,44 @@ export function useSubmitProof() {
     onError: async (error: any) => {
       console.error("Error submitting proof:", error);
       throw new Error("Failed to submit proof, Please try again.");
+    }
+  });
+}
+
+export function useAppealRejection() {
+  const contract = useCleanCityContract();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      submission_id,
+      appeal_context,
+      additional_image_url
+    }: {
+      submission_id: string,
+      appeal_context: string,
+      additional_image_url: string
+    }) => {
+      if (!contract) {
+        throw new Error("Contract not initialized");
+      }
+      const receipt = await contract.appealRejection(submission_id,
+        appeal_context,
+        additional_image_url);
+      console.log("submit appeal tx receipt:", receipt);
+      return receipt;
+    },
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["bounties"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["bounty", variables.submission_id],
+      });
+    },
+    onError: async (error: any) => {
+      console.error("Error submitting appeal:", error);
+      throw new Error("Failed to submit appeal, Please try again.");
     }
   });
 }

@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Award, Briefcase, MapPin, Calendar, Check, Copy } from "lucide-react";
-import { Bounty, Submission, WorkerProfile } from "../types";
+import { Bounty, Submission, WorkerProfile } from "../lib/contracts/types";
+import { useWorkerProfile, useWorkerSubmissions,} from "../lib/hooks/useCleanCity";
+import {getAddress} from "viem";
 
 interface ProfilePageProps {
   walletAddress: string;
@@ -13,30 +15,12 @@ export default function ProfilePage({
   bounties,
   navigate,
 }: ProfilePageProps) {
-  const [profile, setProfile] = useState<WorkerProfile | null>(null);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
+    const {data: profile, isPending: loading} = useWorkerProfile(getAddress(walletAddress));
+    const {data: submissions, isPending: loadingWorkerSubmissions} = useWorkerSubmissions(getAddress(walletAddress));
+
   const walletLower = walletAddress.toLowerCase();
-
-  useEffect(() => {
-    setLoading(true);
-    const fetchProfile = fetch(`/api/workers/profile/${walletLower}`).then((res) => res.json());
-    const fetchSubmissions = fetch(`/api/submissions/worker/${walletLower}`).then((res) => res.json());
-
-    Promise.all([fetchProfile, fetchSubmissions])
-      .then(([profileData, subData]) => {
-        if (profileData.success) {
-          setProfile(profileData.profile);
-        }
-        if (subData.success) {
-          setSubmissions(subData.submissions);
-        }
-      })
-      .catch((err) => console.error("Error loading profile:", err))
-      .finally(() => setLoading(false));
-  }, [walletLower]);
 
   const copyWallet = () => {
     navigator.clipboard.writeText(walletAddress);
@@ -44,24 +28,27 @@ export default function ProfilePage({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  console.log(submissions, "submissions in profile page");
+
   // Stats calculation
-  const approvedSubmissions = submissions.filter((s) => s.status === "APPROVED");
-  const totalSubmissions = submissions.length;
-  const successRate = totalSubmissions > 0 
-    ? Math.round((approvedSubmissions.length / totalSubmissions) * 100) 
+  const approvedSubmissions = submissions?.filter((s) => s.status === "approved");
+  const approvedCount = approvedSubmissions?.length ?? 0;
+  const totalSubmissions = submissions?.length ?? 0;
+  const successRate = totalSubmissions > 0
+    ? Math.round((approvedCount / totalSubmissions) * 100)
     : 100;
 
   // Gather completed bounty details by matching approved submissions with bounties
-  const completedJobs = approvedSubmissions.map((sub) => {
-    const bounty = bounties.find((b) => b.id === sub.bountyId);
+  const completedJobs = approvedSubmissions?.map((sub) => {
+    const bounty = bounties.find((b) => b.bounty_id === sub.bounty_id);
     return {
-      id: sub.bountyId,
-      title: sub.bountyTitle,
-      location: bounty?.location || "Civic center",
-      reward: bounty?.reward || 50,
-      date: sub.submittedAt,
-      beforeImage: bounty?.beforeImage || "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&auto=format&fit=crop&q=60",
-      afterImage: sub.afterImage,
+      id: sub.bounty_id,
+      title:  bounty?.title || "Unknown Bounty",
+      location: bounty?.location_description || "Civic center",
+      reward: bounty?.reward_gen || 0,
+      date: sub.submitted_at,
+      beforeImage: bounty?.before_image_url || "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&auto=format&fit=crop&q=60",
+      afterImage: sub.after_image_url || "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&auto=format&fit=crop&q=60" ,
     };
   });
 
@@ -101,7 +88,7 @@ export default function ProfilePage({
             <div className="flex gap-3">
               {/* Reputation score badge */}
               <div className="bg-[#a3e635] text-black px-4 py-2 flex flex-col items-center justify-center">
-                <span className="text-xl font-mono font-bold leading-none">{profile?.reputation || 0}</span>
+                <span className="text-xl font-mono font-bold leading-none">{profile?.reputation_score || 0}</span>
                 <span className="text-[8px] font-display font-bold uppercase tracking-wider mt-0.5">REP SCORE</span>
               </div>
               {/* Tier badge */}
@@ -116,11 +103,11 @@ export default function ProfilePage({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 font-mono text-xs">
             <div className="bg-[#111111] border border-[#1f1f1f] p-4 text-center">
               <span className="text-[9px] text-[#737373] uppercase block">JOBS DONE</span>
-              <span className="text-2xl font-bold text-white block mt-1">{profile?.jobsDone || 0}</span>
+              <span className="text-2xl font-bold text-white block mt-1">{profile?.total_approved || 0}</span>
             </div>
             <div className="bg-[#111111] border border-[#1f1f1f] p-4 text-center">
               <span className="text-[9px] text-[#737373] uppercase block">GEN EARNED</span>
-              <span className="text-2xl font-bold text-[#a3e635] block mt-1">{profile?.genEarned || 0} GEN</span>
+              <span className="text-2xl font-bold text-[#a3e635] block mt-1">{profile?.total_earned_gen || 0} GEN</span>
             </div>
             <div className="bg-[#111111] border border-[#1f1f1f] p-4 text-center">
               <span className="text-[9px] text-[#737373] uppercase block">SUCCESS RATE</span>
@@ -128,23 +115,23 @@ export default function ProfilePage({
             </div>
             <div className="bg-[#111111] border border-[#1f1f1f] p-4 text-center">
               <span className="text-[9px] text-[#737373] uppercase block">REPUTATION</span>
-              <span className="text-2xl font-bold text-[#a3e635] block mt-1">{profile?.reputation || 0}</span>
+              <span className="text-2xl font-bold text-[#a3e635] block mt-1">{profile?.reputation_score || 0}</span>
             </div>
           </div>
 
           {/* Completed Jobs */}
           <div className="flex flex-col gap-4">
             <h2 className="font-display font-bold text-sm text-white tracking-widest uppercase border-b border-[#1f1f1f] pb-2">
-              COMPLETED JOBS HISTORY ({completedJobs.length})
+              COMPLETED JOBS HISTORY ({completedJobs?.length})
             </h2>
 
-            {completedJobs.length === 0 ? (
+            {completedJobs?.length === 0 ? (
               <div className="border border-dashed border-[#1f1f1f] py-16 text-center">
                 <p className="text-xs text-[#444444] font-mono uppercase">NO COMPLETED JOBS RECORDED YET</p>
               </div>
             ) : (
               <div className="flex flex-col gap-4">
-                {completedJobs.map((job, idx) => (
+                {completedJobs?.map((job, idx) => (
                   <div
                     key={idx}
                     className="bg-[#111111] border border-[#1f1f1f] p-4 flex flex-col md:flex-row justify-between gap-6"

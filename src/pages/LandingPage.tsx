@@ -73,20 +73,40 @@ export default function LandingPage({ bounties, loading, navigate }: LandingPage
           </div>
 
           {/* Right Column (Desktop Only Mockup) */}
-          <div className="hidden lg:flex lg:col-span-5 h-[320px] w-full lg:w-[400px] border border-[#1f1f1f] relative shrink-0 justify-self-end">
-            {/* Before half */}
-            <div className="flex-1 bg-[#0c0c0c] flex items-center justify-center relative">
-              <span className="absolute top-4 left-4 text-[10px] text-[#ef4444] font-bold tracking-wider">BEFORE</span>
-              <div className="w-12 h-1 bg-[#ef4444]"></div>
-            </div>
-            {/* Splitter Line */}
-            <div className="w-[1px] h-full bg-[#a3e635] z-10"></div>
-            {/* After half */}
-            <div className="flex-1 bg-[#161616] flex items-center justify-center relative">
-              <span className="absolute top-4 right-4 text-[10px] text-[#a3e635] font-bold tracking-wider">AFTER</span>
-              <div className="w-12 h-1 bg-[#a3e635]"></div>
-            </div>
-          </div>
+         <div className="hidden lg:flex lg:col-span-5 h-[320px] w-full lg:w-[400px] border border-[#1f1f1f] relative shrink-0 justify-self-end">
+  {/* Before half */}
+  <div className="flex-1 bg-[#0c0c0c] flex items-center justify-center relative overflow-hidden">
+    <span className="absolute top-4 left-4 text-[10px] text-[#ef4444] font-bold tracking-wider z-10">
+      BEFORE
+    </span>
+
+    {bounties.length > 0 && bounties[5]?.before_image_url ? (
+      <img
+        src={bounties[5].before_image_url}
+        alt="Before"
+        className="w-full h-full object-cover grayscale brightness-90"
+      />
+    ) : (
+      <div className="w-12 h-1 bg-[#ef4444]" />
+    )}
+  </div>
+
+  {/* Splitter Line */}
+  <div className="w-[1px] h-full bg-[#a3e635] z-10" />
+
+  {/* After half */}
+  <div className="flex-1 bg-[#161616] flex items-center justify-center relative overflow-hidden">
+    <span className="absolute top-4 right-4 text-[10px] text-[#a3e635] font-bold tracking-wider z-10">
+      AFTER
+    </span>
+
+   
+      <img src={"https://res.cloudinary.com/dighewixb/image/upload/v1787088075/cleancity/zatnr9onrrfrpcmtvbte.jpg"} alt="After" className="w-full h-full object-cover" />
+   
+
+    <div className="w-12 h-1 bg-[#a3e635]" />
+  </div>
+</div>
         </div>
       </section>
 

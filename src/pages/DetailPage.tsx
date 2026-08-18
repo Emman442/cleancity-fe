@@ -11,15 +11,12 @@ import {
   Check,
 } from "lucide-react";
 import { Bounty, Category, Verdict } from "../lib/contracts/types";
-import { useSubmitProof } from "../lib/hooks/useCleanCity";
+import { useSubmitProof, useGenerateSessionToken, useSubmission, useAppealRejection } from "../lib/hooks/useCleanCity";
+import { extractSessionToken } from "../lib/utils/generateSessionToken";
+import { uploadImage } from "../lib/utils/uploadImage";
 
-interface LeaderboardWorker {
-  wallet: string;
-  reputation: number;
-  jobsDone: number;
-  genEarned: number;
-  tier: string;
-}
+import { useCleanCityContract } from "../lib/hooks/useCleanCity";
+import { extractSubmissionId } from "../lib/utils/extractSubmissionId";
 
 interface DetailPageProps {
   bountyId: string;
@@ -28,6 +25,7 @@ interface DetailPageProps {
   onBack: () => void;
   onClaim: (id: string) => Promise<void>;
   onConnectWallet: () => void;
+  showToast: (title: string, message: string, type: "success" | "error" | "info") => void;
 }
 
 export default function DetailPage({
@@ -37,19 +35,26 @@ export default function DetailPage({
   onBack,
   onClaim,
   onConnectWallet,
+  showToast
 }: DetailPageProps) {
   const bounty = bounties.find((b) => b.bounty_id === bountyId);
 
-  // ─── Local state ─────────────────────────────────────────────
+  const contract = useCleanCityContract();
   const [token, setToken] = useState<string>("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [copied, setCopied] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardWorker[]>([]);
-
   const [verdict, setVerdict] = useState<Verdict | "PENDING" | null>(null);
   const [reasoning, setReasoning] = useState("");
   const [confidence, setConfidence] = useState<"high" | "medium" | "low" | "">("");
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
+  const { isPending: isSubmittingAppeal, mutate: submitAppeal } = useAppealRejection();
+  console.log(bounty)
+  const [showAppealForm, setShowAppealForm] = useState(false);
+  const [appealContext, setAppealContext] = useState("");
+  const [appealImagePreview, setAppealImagePreview] = useState<string | null>(null);
+  const appealFileInputRef = useRef<HTMLInputElement>(null);
+
 
   const [statusMsgIndex, setStatusMsgIndex] = useState(0);
   const statusMessages = [
@@ -62,22 +67,12 @@ export default function DetailPage({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { isPending: isSubmittingProof, mutate: submitProof } = useSubmitProof();
+  const { isPending: isGeneratingSessionToken, mutate: generateToken } = useGenerateSessionToken()
 
-  // ─── Derived ─────────────────────────────────────────────────
   const isClaimedByMe =
     !!wallet &&
     !!bounty?.claimer &&
     bounty.claimer.toLowerCase() === wallet.toLowerCase();
-
-  // ─── Effects ─────────────────────────────────────────────────
-  useEffect(() => {
-    fetch("/api/workers/leaderboard")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) setLeaderboard(data.leaderboard);
-      })
-      .catch((err) => console.error("Leaderboard fetch error:", err));
-  }, []);
 
   useEffect(() => {
     if (wallet && bounty) {
@@ -98,7 +93,6 @@ export default function DetailPage({
     return () => clearInterval(interval);
   }, [isSubmittingProof, verdict]);
 
-  // ─── Guards ──────────────────────────────────────────────────
   if (!bounty) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center w-full flex-grow">
@@ -115,19 +109,56 @@ export default function DetailPage({
     );
   }
 
-  // ─── Handlers ────────────────────────────────────────────────
+  async function stampTokenOnImage(dataUrl: string, token: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0);
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, canvas.height - 48, canvas.width, 48);
+
+        ctx.fillStyle = "#a3e635";
+        ctx.font = "bold 28px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(token, canvas.width / 2, canvas.height - 16);
+
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+  }
   const handleGenerateToken = () => {
     if (!wallet) return;
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let randomToken = "";
-    for (let i = 0; i < 8; i++) {
-      randomToken += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setToken(randomToken);
-    localStorage.setItem(
-      `token_${wallet.toLowerCase()}_${bounty.bounty_id}`,
-      randomToken
-    );
+    generateToken({ bounty_id: bountyId }, {
+      onSuccess: (result) => {
+
+
+        const token = extractSessionToken(result);
+        console.log("parsed token:", token);
+
+
+        setToken(token);
+        localStorage.setItem(
+          `token_${wallet.toLowerCase()}_${bountyId}`,
+          token
+        );
+
+        showToast(
+          "Token Generated!",
+          `Your session token is ${token}`,
+          "success"
+        );
+      },
+      onError: () => {
+        showToast("Token Generation Failed!", "Failed to generate session token", "error")
+      }
+    })
+
   };
 
   const copyToken = () => {
@@ -176,53 +207,142 @@ export default function DetailPage({
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files && files.length > 0) {
-      try {
-        const base64Str = await compressImage(files[0]);
-        setImagePreview(base64Str);
-      } catch (err) {
-        console.error("Image processing error:", err);
-      }
+    if (!files?.length) return;
+
+    try {
+      const base64Str = await compressImage(files[0]);
+
+      const finalImage = token
+        ? await stampTokenOnImage(base64Str, token)
+        : base64Str;
+
+      setImagePreview(finalImage);
+    } catch (err) {
+      console.error("Image processing error:", err);
+      showToast("Image Error", "Could not process photo", "error");
     }
   };
 
-  const handleSubmitProof = () => {
+  const handleAppealFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    try {
+      const base64Str = await compressImage(files[0]);
+      setAppealImagePreview(base64Str);
+    } catch (err) {
+      console.error("Appeal image processing error:", err);
+      showToast("Image Error", "Could not process appeal photo", "error");
+    }
+  };
+
+  const handleSubmitAppeal = async () => {
+    if (!submissionId || !appealContext.trim()) return;
+
+    try {
+      let additionalImageUrl = "";
+      if (appealImagePreview) {
+        additionalImageUrl = await uploadImage(appealImagePreview);
+      }
+
+      submitAppeal(
+        {
+          submission_id: submissionId,
+          appeal_context: appealContext,
+          additional_image_url: additionalImageUrl,
+        },
+        {
+          onSuccess: async () => {
+            showToast("Appeal Submitted", "Your appeal is under review", "success");
+            const submission = await contract?.getSubmission(submissionId);
+            setVerdict(submission?.ai_verdict as Verdict || "pending");
+            setReasoning(submission?.ai_reasoning || "No reasoning provided yet.");
+            setConfidence(submission?.ai_confidence as any || "low");
+            setShowAppealForm(false);
+            setAppealContext("");
+            setAppealImagePreview(null);
+          },
+          onError: (err) => {
+            console.error(err);
+            showToast("Appeal Failed", "Could not submit appeal", "error");
+          },
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      showToast("Upload Failed", "Could not upload appeal image", "error");
+    }
+  };
+  const handleSubmitProof = async () => {
     if (!imagePreview || !token) return;
 
     setVerdict("PENDING");
     setReasoning("");
     setConfidence("");
 
-    submitProof(
-      {
-        bounty_id: bountyId,
-        after_image_url: imagePreview,
-        session_token: token,
-        notes: notes || "",
-      },
-      {
-        onSuccess: () => {
-          // TODO: replace with real submission polling once you have getSubmission()
-          // For now keep UI responsive so it doesn't hang forever.
-          // Ideal flow:
-          //   1. refetch bounty → get submission_id
-          //   2. fetch submission
-          //   3. setVerdict(submission.ai_verdict)
-          //   4. setReasoning(submission.ai_reasoning)
-          //   5. setConfidence(submission.ai_confidence)
-          setVerdict("inconclusive");
-          setReasoning(
-            "Proof submitted on-chain. Refresh or poll the submission to load the final AI verdict."
-          );
-          setConfidence("low");
+    try {
+      const afterImageUrl = await uploadImage(imagePreview);
+      console.log("Uploaded after image URL:", afterImageUrl);
+
+      submitProof(
+        {
+          bounty_id: bountyId,
+          after_image_url: afterImageUrl,
+          session_token: token,
+          notes: notes || "",
         },
-        onError: () => {
-          setVerdict(null);
-          setReasoning("");
-          setConfidence("");
-        },
-      }
-    );
+        {
+          onSuccess: async (result) => {
+            try {
+
+              const submissionId =
+                extractSubmissionId(result) ||
+                (await contract?.getBounty(bountyId))?.submission_id;
+              "";
+
+              let finalSubmissionId = submissionId;
+
+              if (!finalSubmissionId) {
+                await new Promise((r) => setTimeout(r, 1500));
+                const b = await contract?.getBounty(bountyId);
+                finalSubmissionId = b?.submission_id;
+              }
+
+
+
+              if (!finalSubmissionId) {
+                setVerdict("inconclusive");
+                setReasoning("Proof submitted, but submission id not found yet. Refresh shortly.");
+                setConfidence("low");
+                return;
+              }
+
+              setSubmissionId(finalSubmissionId);
+
+              const submission = await contract?.getSubmission(finalSubmissionId);
+              setVerdict(submission?.ai_verdict as Verdict || "pending");
+              setReasoning(submission?.ai_reasoning || "No reasoning provided yet.");
+              setConfidence(submission?.ai_confidence as any || "low");
+            } catch (e) {
+              console.error(e);
+              setVerdict("inconclusive");
+              setReasoning("Proof submitted, but failed to load AI verdict.");
+              setConfidence("low");
+            }
+          },
+          onError: (err) => {
+            console.error(err);
+            setVerdict(null);
+            setReasoning("");
+            setConfidence("");
+            showToast("Submit Failed", "Could not submit proof", "error");
+          },
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      setVerdict(null);
+      showToast("Upload Failed", "Could not upload proof image", "error");
+    }
   };
 
   const getRequirementsList = (category: Category) => {
@@ -269,7 +389,6 @@ export default function DetailPage({
     }
   };
 
-  // ─── Render ──────────────────────────────────────────────────
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 py-8 w-full flex-grow flex flex-col gap-6">
       {/* Back button */}
@@ -378,7 +497,7 @@ export default function DetailPage({
                       className="px-6 py-2.5 bg-[#a3e635] hover:bg-[#bbf7d0] text-black font-display font-bold text-xs tracking-wider uppercase transition-colors"
                       style={{ borderRadius: "0px" }}
                     >
-                      GENERATE TOKEN
+                      {isGeneratingSessionToken ? "GENERATING TOKEN..." : "GENERATE TOKEN"}
                     </button>
                   </div>
                 )}
@@ -446,11 +565,10 @@ export default function DetailPage({
                   <button
                     onClick={handleSubmitProof}
                     disabled={!imagePreview || isSubmittingProof || !token}
-                    className={`w-full font-display font-bold text-xs py-3.5 tracking-wider uppercase transition-colors ${
-                      imagePreview && !isSubmittingProof && token
-                        ? "bg-[#a3e635] hover:bg-[#bbf7d0] text-black cursor-pointer"
-                        : "bg-[#1f1f1f] text-[#444444] cursor-not-allowed"
-                    }`}
+                    className={`w-full font-display font-bold text-xs py-3.5 tracking-wider uppercase transition-colors ${imagePreview && !isSubmittingProof && token
+                      ? "bg-[#a3e635] hover:bg-[#bbf7d0] text-black cursor-pointer"
+                      : "bg-[#1f1f1f] text-[#444444] cursor-not-allowed"
+                      }`}
                     style={{ borderRadius: "0px" }}
                   >
                     {isSubmittingProof ? "Submitting proof..." : "SUBMIT PROOF →"}
@@ -542,20 +660,97 @@ export default function DetailPage({
                         </p>
                       </div>
 
-                      <div className="flex gap-3">
-                        <button
-                          onClick={() => {
-                            setVerdict(null);
-                            setImagePreview(null);
-                            setReasoning("");
-                            setConfidence("");
-                          }}
-                          className="px-4 py-2 bg-transparent border border-[#ef4444] text-[#ef4444] font-display font-bold text-xs uppercase hover:bg-[#ef4444]/10 transition-colors"
-                          style={{ borderRadius: "0px" }}
-                        >
-                          TRY AGAIN
-                        </button>
-                      </div>
+                      {!showAppealForm ? (
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => {
+                              setVerdict(null);
+                              setImagePreview(null);
+                              setReasoning("");
+                              setConfidence("");
+                            }}
+                            className="px-4 py-2 bg-transparent border border-[#ef4444] text-[#ef4444] font-display font-bold text-xs uppercase hover:bg-[#ef4444]/10 transition-colors"
+                            style={{ borderRadius: "0px" }}
+                          >
+                            TRY AGAIN
+                          </button>
+                          <button
+                            onClick={() => setShowAppealForm(true)}
+                            className="px-4 py-2 bg-transparent border border-white text-white font-display font-bold text-xs uppercase hover:bg-white/10 transition-colors"
+                            style={{ borderRadius: "0px" }}
+                          >
+                            FILE APPEAL
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3 border-t border-[#1f1f1f] pt-4">
+                          <label className="block text-[10px] font-display font-bold text-[#737373] tracking-wider uppercase">
+                            WHY SHOULD THIS BE RECONSIDERED
+                          </label>
+                          <textarea
+                            placeholder="Explain what the validators may have missed"
+                            value={appealContext}
+                            onChange={(e) => setAppealContext(e.target.value)}
+                            className="w-full bg-black border border-[#1f1f1f] focus:border-[#a3e635] focus:outline-none p-3 text-xs text-white placeholder-[#444444] h-20"
+                            style={{ borderRadius: "0px" }}
+                          />
+
+                          {appealImagePreview ? (
+                            <div className="w-full h-40 bg-black border border-[#1f1f1f] relative">
+                              <img
+                                src={appealImagePreview}
+                                alt="Appeal evidence"
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                onClick={() => setAppealImagePreview(null)}
+                                className="absolute top-2 right-2 bg-black/80 hover:bg-black border border-[#ef4444] text-[#ef4444] px-2 py-1 text-[10px] font-mono uppercase"
+                              >
+                                REMOVE
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => appealFileInputRef.current?.click()}
+                              className="border-2 border-dashed border-white/30 hover:border-white/60 cursor-pointer bg-black/40 p-6 flex flex-col items-center justify-center gap-2 transition-colors"
+                            >
+                              <Camera className="w-6 h-6 text-white/60" />
+                              <span className="text-[10px] font-display font-bold text-white/60 tracking-wider uppercase">
+                                ADD EVIDENCE PHOTO (OPTIONAL)
+                              </span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                ref={appealFileInputRef}
+                                onChange={handleAppealFileChange}
+                                className="hidden"
+                              />
+                            </div>
+                          )}
+
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => setShowAppealForm(false)}
+                              className="px-4 py-2 bg-transparent border border-[#1f1f1f] text-[#737373] font-display font-bold text-xs uppercase hover:border-white/40 transition-colors"
+                              style={{ borderRadius: "0px" }}
+                            >
+                              CANCEL
+                            </button>
+                            <button
+                              onClick={handleSubmitAppeal}
+                              disabled={!appealContext.trim() || isSubmittingAppeal}
+                              className={`px-4 py-2 font-display font-bold text-xs uppercase transition-colors ${appealContext.trim() && !isSubmittingAppeal
+                                ? "bg-[#a3e635] hover:bg-[#bbf7d0] text-black cursor-pointer"
+                                : "bg-[#1f1f1f] text-[#444444] cursor-not-allowed"
+                                }`}
+                              style={{ borderRadius: "0px" }}
+                            >
+                              {isSubmittingAppeal ? "SUBMITTING APPEAL..." : "SUBMIT APPEAL"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -582,20 +777,97 @@ export default function DetailPage({
                         </p>
                       </div>
 
-                      <div>
-                        <button
-                          onClick={() => {
-                            setVerdict(null);
-                            setImagePreview(null);
-                            setReasoning("");
-                            setConfidence("");
-                          }}
-                          className="px-4 py-2 bg-transparent border border-white text-white font-display font-bold text-xs uppercase hover:bg-white/10 transition-colors"
-                          style={{ borderRadius: "0px" }}
-                        >
-                          TRY SUBMITTING AGAIN
-                        </button>
-                      </div>
+                      {!showAppealForm ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setVerdict(null);
+                              setImagePreview(null);
+                              setReasoning("");
+                              setConfidence("");
+                            }}
+                            className="px-4 py-2 bg-transparent border border-white text-white font-display font-bold text-xs uppercase hover:bg-white/10 transition-colors"
+                            style={{ borderRadius: "0px" }}
+                          >
+                            TRY SUBMITTING AGAIN
+                          </button>
+                          <button
+                            onClick={() => setShowAppealForm(true)}
+                            className="px-4 py-2 bg-transparent border border-white text-white font-display font-bold text-xs uppercase hover:bg-white/10 transition-colors"
+                            style={{ borderRadius: "0px" }}
+                          >
+                            FILE APPEAL
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3 border-t border-[#1f1f1f] pt-4">
+                          <label className="block text-[10px] font-display font-bold text-[#737373] tracking-wider uppercase">
+                            WHAT SHOULD THE VALIDATORS RECONSIDER
+                          </label>
+                          <textarea
+                            placeholder="Explain what might have been unclear in your original proof"
+                            value={appealContext}
+                            onChange={(e) => setAppealContext(e.target.value)}
+                            className="w-full bg-black border border-[#1f1f1f] focus:border-[#a3e635] focus:outline-none p-3 text-xs text-white placeholder-[#444444] h-20"
+                            style={{ borderRadius: "0px" }}
+                          />
+
+                          {appealImagePreview ? (
+                            <div className="w-full h-40 bg-black border border-[#1f1f1f] relative">
+                              <img
+                                src={appealImagePreview}
+                                alt="Appeal evidence"
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                onClick={() => setAppealImagePreview(null)}
+                                className="absolute top-2 right-2 bg-black/80 hover:bg-black border border-[#ef4444] text-[#ef4444] px-2 py-1 text-[10px] font-mono uppercase"
+                              >
+                                REMOVE
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => appealFileInputRef.current?.click()}
+                              className="border-2 border-dashed border-white/30 hover:border-white/60 cursor-pointer bg-black/40 p-6 flex flex-col items-center justify-center gap-2 transition-colors"
+                            >
+                              <Camera className="w-6 h-6 text-white/60" />
+                              <span className="text-[10px] font-display font-bold text-white/60 tracking-wider uppercase">
+                                ADD EVIDENCE PHOTO (OPTIONAL)
+                              </span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                ref={appealFileInputRef}
+                                onChange={handleAppealFileChange}
+                                className="hidden"
+                              />
+                            </div>
+                          )}
+
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => setShowAppealForm(false)}
+                              className="px-4 py-2 bg-transparent border border-[#1f1f1f] text-[#737373] font-display font-bold text-xs uppercase hover:border-white/40 transition-colors"
+                              style={{ borderRadius: "0px" }}
+                            >
+                              CANCEL
+                            </button>
+                            <button
+                              onClick={handleSubmitAppeal}
+                              disabled={!appealContext.trim() || isSubmittingAppeal}
+                              className={`px-4 py-2 font-display font-bold text-xs uppercase transition-colors ${appealContext.trim() && !isSubmittingAppeal
+                                  ? "bg-[#a3e635] hover:bg-[#bbf7d0] text-black cursor-pointer"
+                                  : "bg-[#1f1f1f] text-[#444444] cursor-not-allowed"
+                                }`}
+                              style={{ borderRadius: "0px" }}
+                            >
+                              {isSubmittingAppeal ? "SUBMITTING APPEAL..." : "SUBMIT APPEAL"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -698,48 +970,6 @@ export default function DetailPage({
                 required.
               </p>
             </div>
-          </div>
-
-          {/* Leaderboard */}
-          <div className="bg-[#111111] border border-[#1f1f1f] p-5 flex flex-col gap-4">
-            <h3 className="text-[10px] font-display font-bold text-[#a3e635] tracking-widest uppercase border-b border-[#1f1f1f] pb-3">
-              TOP WORKERS
-            </h3>
-
-            {leaderboard.length === 0 ? (
-              <p className="text-[10px] text-[#444444] font-mono uppercase">
-                NO ACTIVE WORKERS FOUND
-              </p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {leaderboard.map((worker, index) => (
-                  <div
-                    key={worker.wallet}
-                    className="flex justify-between items-center text-xs border-b border-[#1f1f1f]/30 pb-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-[#444444] font-mono">
-                        #{index + 1}
-                      </span>
-                      <span className="font-mono text-white select-all">
-                        {worker.wallet.substring(0, 6)}...
-                      </span>
-                      <span className="text-[9px] bg-[#a3e635]/10 text-[#a3e635] px-1 font-mono uppercase">
-                        {worker.tier}
-                      </span>
-                    </div>
-                    <div className="text-right font-mono">
-                      <div className="text-white font-bold">
-                        {worker.genEarned} GEN
-                      </div>
-                      <div className="text-[9px] text-[#737373]">
-                        {worker.reputation} REP
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>

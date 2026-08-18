@@ -4,6 +4,8 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv"
 
+dotenv.config()
+
 
 
 async function startServer() {

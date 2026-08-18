@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { ArrowRight, Clock, Award, CheckCircle2, XCircle, AlertCircle, Eye } from "lucide-react";
 import { Bounty, Submission, WorkerProfile } from "../lib/contracts/types";
+import { useWorkerProfile, useWorkerSubmissions,} from "../lib/hooks/useCleanCity";
+import {getAddress} from "viem";
 
 interface ActivityPageProps {
   wallet: string;
@@ -16,35 +18,16 @@ export default function ActivityPage({
   navigate,
 }: ActivityPageProps) {
   const [activeTab, setActiveTab] = useState<"WORKER" | "CREATOR">("WORKER");
-  const [profile, setProfile] = useState<WorkerProfile | null>(null);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [loadingProfile, setLoadingProfile] = useState(true);
 
+  const {data: profile, isPending: loadingProfile} = useWorkerProfile(getAddress(wallet));
+  const {data: submissions, isPending: loadingWorkerSubmissions} = useWorkerSubmissions(getAddress(wallet));
   const walletLower = wallet.toLowerCase();
 
-  // Load profile and submissions on mount/wallet change
-  useEffect(() => {
-    setLoadingProfile(true);
-    const fetchProfile = fetch(`/api/workers/profile/${walletLower}`).then((res) => res.json());
-    const fetchSubmissions = fetch(`/api/submissions/worker/${walletLower}`).then((res) => res.json());
-
-    Promise.all([fetchProfile, fetchSubmissions])
-      .then(([profileData, subData]) => {
-        if (profileData.success) {
-          setProfile(profileData.profile);
-        }
-        if (subData.success) {
-          setSubmissions(subData.submissions);
-        }
-      })
-      .catch((err) => console.error("Error fetching activity data:", err))
-      .finally(() => setLoadingProfile(false));
-  }, [walletLower]);
 
   // WORKER STATS & SUBMISSIONS
-  const submittedCount = submissions.length;
-  const approvedCount = submissions.filter((s) => s.status === "approved").length;
-  const rejectedCount = submissions.filter((s) => s.status === "rejected").length;
+  const submittedCount = submissions?.length;
+  const approvedCount = submissions?.filter((s) => s.status === "approved").length;
+  const rejectedCount = submissions?.filter((s) => s.status === "rejected").length;
   const genEarned = profile?.total_earned_gen || 0;
   const reputation = profile?.reputation_score || 0;
   const tier = profile?.tier || "ROOKIE";
@@ -239,10 +222,10 @@ export default function ActivityPage({
           {/* Submission History */}
           <div className="flex flex-col gap-4">
             <h2 className="font-display font-bold text-sm text-white tracking-widest uppercase border-b border-[#1f1f1f] pb-2">
-              VERIFICATION SUBMISSIONS ({submissions.length})
+              VERIFICATION SUBMISSIONS ({submissions?.length || 0} )
             </h2>
 
-            {submissions.length === 0 ? (
+            {submissions?.length === 0 ? (
               <div className="border border-[#1f1f1f] py-8 text-center bg-[#0c0c0c]">
                 <p className="text-xs text-[#444444] font-mono uppercase">NO VERIFICATION HISTORY FOUND</p>
               </div>
@@ -260,10 +243,10 @@ export default function ActivityPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {submissions.map((sub) => (
+                    {submissions?.map((sub) => (
                       <tr key={sub.submission_id} className="border-b border-[#1f1f1f]/50 hover:bg-[#161616]/40 transition-colors">
                         <td className="p-4 font-sans font-semibold text-white max-w-xs truncate">
-                          {sub.bounty_title}
+                          {sub.bounty_id ? bounties.find((b) => b.bounty_id === sub.bounty_id)?.title || "Unknown Bounty" : "Unknown Bounty"}
                         </td>
                         <td className="p-4 text-[#a3e635] font-bold">{sub.session_token}</td>
                         <td className="p-4">{getVerdictBadge(sub.status)}</td>
@@ -367,7 +350,7 @@ export default function ActivityPage({
                           </span>
                         </td>
                         <td className="p-4 text-white">
-                          {b.claimer?.length || 0} / {b.max_workers} workers
+                          {b.total_claims || 0} / {b.max_workers} worker(s)
                         </td>
                         <td className="p-4 text-[#a3e635] font-bold">{b.reward_gen} GEN</td>
                         <td className="p-4 text-right">

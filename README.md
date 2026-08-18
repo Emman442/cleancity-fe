@@ -1,50 +1,21 @@
-# CleanCity
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Decentralized civic cleanup bounties on **GenLayer**.
+# Run and deploy your AI Studio app
 
-Anyone can post a real-world cleanup job (trash, graffiti, potholes, drainage, etc.), lock a GEN reward on-chain, and let workers claim the job, submit photo proof, and get paid after AI verification.
+This contains everything you need to run your app locally.
 
----
+View your app in AI Studio: https://ai.studio/apps/8def461a-2e5e-4d16-95aa-10e47309b8ff
 
-## What it does
+## Run Locally
 
-- **Create bounties** — post a problem photo, location, category, reward, and deadline
-- **Claim jobs** — workers claim open bounties before heading to the field
-- **Session tokens** — unique codes that must appear in the after photo (anti-stock-photo)
-- **Submit proof** — upload after photos; GenLayer AI compares before/after
-- **Auto payout** — approved work releases GEN to the worker
-- **Appeals** — workers can appeal rejected / inconclusive verdicts
-- **Leaderboard** — reputation and earnings on-chain
+**Prerequisites:**  Node.js
 
----
 
-## Stack
-
-| Layer | Tech |
-|---|---|
-| Smart contract | GenLayer Intelligent Contracts (Python) |
-| Frontend | React + TypeScript + Vite |
-| Data / hooks | TanStack Query |
-| Wallet | MetaMask (GenLayer network) |
-| Images | Cloudinary (public HTTPS URLs) |
-| Styling | Tailwind CSS |
-
----
-
-## Project structure (typical)
-
-```text
-Cleancity/
-├── contracts/          # GenLayer CleanCity contract
-├── src/
-│   ├── components/
-│   ├── pages/          # Board, Detail, Post, Activity, Profile...
-│   ├── lib/
-│   │   ├── contracts/  # types + client
-│   │   ├── hooks/      # useCleanCity hooks
-│   │   ├── genlayer/   # wallet provider
-│   │   └── utils/      # uploadImage, token helpers
-│   ├── App.tsx
-│   └── main.tsx
-├── .env
-└── package.json
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
+# cleancity-fe

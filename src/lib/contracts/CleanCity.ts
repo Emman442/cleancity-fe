@@ -1,6 +1,6 @@
 import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
-import type { Bounty, TransactionReceipt } from "./types";
+import type { Bounty, Submission, TransactionReceipt, WorkerProfile } from "./types";
 import { TransactionStatus } from "genlayer-js/types";
 import { parseEther } from "viem";
 
@@ -67,6 +67,23 @@ class CleanCity {
   }
 
 
+  async getWorkerSubmissions(workerId: string): Promise<Submission[]> {
+    try {
+      const submissions = await this.client.readContract({
+        address: this.contractAddress,
+        functionName: "get_worker_submissions",
+        args: [workerId]
+      });
+
+
+      return submissions as Submission[];
+    } catch (error) {
+      console.error("Error fetching worker submissions: ", error);
+      throw new Error("Failed to fetch worker submissions");
+    }
+  }
+
+
   async getBounty(bountyId: string): Promise<Bounty> {
     try {
       const bounty = await this.client.readContract({
@@ -83,26 +100,36 @@ class CleanCity {
     }
   }
 
-
-  // async getLeaderboard(bountyId: string): Promise<Bounty> {
-  //   try {
-  //     const bounty = await this.client.readContract({
-  //       address: this.contractAddress,
-  //       functionName: "get_bounty",
-  //       args: [bountyId]
-  //     });
-
-
-  //     return bounty as Bounty;
-  //   } catch (error) {
-  //     console.error("Error fetching bounty: ", error);
-  //     throw new Error("Failed to fetch bounty");
-  //   }
-  // }
+  async getSubmission(submission_id: string): Promise<Submission> {
+    try {
+      const submission = await this.client.readContract({
+        address: this.contractAddress,
+        functionName: "get_submission",
+        args: [submission_id]
+      });
 
 
+      return submission as Submission;
+    } catch (error) {
+      console.error("Error fetching submission: ", error);
+      throw new Error("Failed to fetch submission");
+    }
+  }
 
+  async getWorkerProfile(worker_id: string): Promise<WorkerProfile> {
+    try {
+      const profile = await this.client.readContract({
+        address: this.contractAddress,
+        functionName: "get_worker_profile",
+        args: [worker_id]
+      });
 
+      return profile as WorkerProfile;
+    } catch (error) {
+      console.error("Error fetching worker profile: ", error);
+      throw new Error("Failed to fetch worker profile");
+    }
+  }
 
   async ClaimBounty(
     bounty_id: string
@@ -184,6 +211,8 @@ class CleanCity {
       const receipt = await this.client.waitForTransactionReceipt({
         hash: txHash,
         status: TransactionStatus.ACCEPTED,
+        retries: 60,
+        interval: 5000,
       });
 
       return receipt as TransactionReceipt;
@@ -192,6 +221,37 @@ class CleanCity {
       throw new Error("Failed to submit proof");
     }
   }
+
+  async appealRejection(
+    submission_id: string,
+    appeal_context: string,
+    additional_image_url: string,
+  ) {
+
+    await this.client.connect("studionet");
+    try {
+      const txHash = await this.client.writeContract({
+        address: this.contractAddress,
+        functionName: "appeal_rejection",
+        args: [submission_id, appeal_context, additional_image_url],
+        value: BigInt(0)
+
+      });
+
+      const receipt = await this.client.waitForTransactionReceipt({
+        hash: txHash,
+        status: TransactionStatus.ACCEPTED,
+        retries: 60,
+        interval: 5000,
+      });
+
+      return receipt as TransactionReceipt;
+    } catch (error) {
+      console.error("Error submitting appeal:", error);
+      throw new Error("Failed to submit appeal");
+    }
+  }
+  
   async generateSessionToken(
     bounty_id: string,
   ) {

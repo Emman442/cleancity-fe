@@ -137,10 +137,10 @@ export default function PostPage({
 
     createBounty({ title: title, description: description, location_description: location, category: category, before_image_url: beforeImageURL, reward_gen: reward, duration_seconds: durationHours, max_workers: maxWorkers }, {
       onSuccess: () => {
-        showToast("Claim Successful!", "Bounty claimed successfully", "success")
+        showToast("Bounty Creation Successful!", "Bounty created successfully", "success")
       },
       onError: () => {
-        showToast("Claim Successful!", "Bounty claimed successfully", "success")
+        showToast("Bounty Creation Failed!", "Failed to create bounty", "error")
       }
     })
 

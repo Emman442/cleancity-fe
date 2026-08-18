@@ -19,12 +19,14 @@ export default function BoardPage({
   onClaim,
   navigate,
   onConnectWallet,
-  isClaimingBounty 
+  isClaimingBounty
 }: BoardPageProps) {
-  const [selectedCategory, setSelectedCategory] = useState<Category | "ALL">("ALL");
-  const [selectedStatus, setSelectedStatus] = useState<BountyStatus | "ALL">("ALL");
+  const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
+  const [selectedStatus, setSelectedStatus] = useState<BountyStatus | "all">("all");
   const [sortBy, setSortBy] = useState<"NEWEST" | "HIGHEST_REWARD" | "ENDING_SOON">("NEWEST");
   const [searchQuery, setSearchQuery] = useState("");
+
+  console.log(bounties, "bounties");
 
   const categories: (Category | "all")[] = [
     "all",
@@ -36,12 +38,12 @@ export default function BoardPage({
     "other",
   ];
 
-  const statuses: (BountyStatus | "ALL")[] = ["ALL", "open", "claimed", "completed"];
+  const statuses: (BountyStatus | "all")[] = ["all", "open", "claimed", "completed"];
 
   // Filtering
   const filteredBounties = bounties.filter((b) => {
-    const matchesCategory = selectedCategory === "ALL" || b.category === selectedCategory;
-    const matchesStatus = selectedStatus === "ALL" || b.status === selectedStatus;
+    const matchesCategory = selectedCategory === "all" || b.category === selectedCategory;
+    const matchesStatus = selectedStatus === "all" || b.status === selectedStatus;
     const matchesSearch =
       b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       b.location_description.toLowerCase().includes(searchQuery.toLowerCase());
@@ -53,7 +55,7 @@ export default function BoardPage({
     if (sortBy === "HIGHEST_REWARD") {
       return b.reward_gen - a.reward_gen;
     } else if (sortBy === "ENDING_SOON") {
-      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      return Number(a.deadline) - Number(b.deadline);
     } else {
       // NEWEST
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -89,21 +91,50 @@ export default function BoardPage({
     }
   };
 
-  const formatDeadline = (deadlineStr: string) => {
-    const remainingMs = new Date(deadlineStr).getTime() - Date.now();
+  const formatDeadline = (deadline: number | string) => {
+    // Contract stores deadline as unix ms number
+    const deadlineMs =
+      typeof deadline === "number"
+        ? deadline
+        : Number(deadline);
+
+    if (!Number.isFinite(deadlineMs)) {
+      return { text: "NO DEADLINE", urgent: false };
+    }
+
+    const remainingMs = deadlineMs - Date.now();
+
     if (remainingMs <= 0) {
       return { text: "EXPIRED", urgent: false };
     }
-    const hours = Math.floor(remainingMs / (3600000));
-    if (hours < 24) {
-      const minutes = Math.floor((remainingMs % 3600000) / 60000);
-      return { text: `ENDS IN ${hours}h ${minutes}m`, urgent: true };
-    } else {
-      const days = Math.floor(hours / 24);
-      const remainingHours = hours % 24;
-      return { text: `Ends in ${days}d ${remainingHours}h`, urgent: false };
+
+    const totalMinutes = Math.floor(remainingMs / 60000);
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const minutes = totalMinutes % 60;
+
+    if (days > 0) {
+      return {
+        text: `Ends in ${days}d ${hours}h`,
+        urgent: days < 1,
+      };
     }
+
+    if (hours > 0) {
+      return {
+        text: `ENDS IN ${hours}h ${minutes}m`,
+        urgent: true,
+      };
+    }
+
+    return {
+      text: `ENDS IN ${minutes}m`,
+      urgent: true,
+    };
   };
+
+
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 py-10 w-full flex-grow">
@@ -141,11 +172,10 @@ export default function BoardPage({
                 <button
                   key={st}
                   onClick={() => setSelectedStatus(st)}
-                  className={`px-3 py-1.5 text-[10px] font-display font-bold uppercase transition-colors cursor-pointer ${
-                    selectedStatus === st
-                      ? "bg-[#a3e635] text-black"
-                      : "text-[#737373] hover:text-white"
-                  }`}
+                  className={`px-3 py-1.5 text-[10px] font-display font-bold uppercase transition-colors cursor-pointer ${selectedStatus === st
+                    ? "bg-[#a3e635] text-black"
+                    : "text-[#737373] hover:text-white"
+                    }`}
                   style={{ borderRadius: "0px" }}
                 >
                   {st}
@@ -178,11 +208,10 @@ export default function BoardPage({
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`shrink-0 px-4 py-2.5 text-xs font-display font-bold uppercase tracking-wider transition-all border cursor-pointer ${
-                  isActive
-                    ? "bg-[#a3e635] text-black border-[#a3e635]"
-                    : "bg-transparent text-[#737373] border-[#1f1f1f] hover:border-[#2a2a2a] hover:text-white"
-                }`}
+                className={`shrink-0 px-4 py-2.5 text-xs font-display font-bold uppercase tracking-wider transition-all border cursor-pointer ${isActive
+                  ? "bg-[#a3e635] text-black border-[#a3e635]"
+                  : "bg-transparent text-[#737373] border-[#1f1f1f] hover:border-[#2a2a2a] hover:text-white"
+                  }`}
                 style={{ borderRadius: "0px" }}
               >
                 {cat}
@@ -209,6 +238,19 @@ export default function BoardPage({
             const isClaimedByMe = wallet && b.claimer?.includes(wallet.toLowerCase());
             const deadlineInfo = formatDeadline(b.deadline.toString());
 
+
+            const isCreator =
+              !!wallet && b.creator.toLowerCase() === wallet.toLowerCase();
+
+            const isExpired = Number(b.deadline) <= Date.now();
+
+            const canClaim =
+              !!wallet &&
+              !isCreator &&
+              !isExpired &&
+              b.status === "open" &&
+              !isClaimingBounty;
+
             return (
               <div
                 key={b.bounty_id}
@@ -216,7 +258,7 @@ export default function BoardPage({
                 style={{ borderRadius: "0px", height: "460px" }}
               >
                 {/* Image Area */}
-                <div 
+                <div
                   onClick={() => navigate(`#/bounties/${b.bounty_id}`)}
                   className="w-full h-[180px] bg-black border-b border-[#1f1f1f] overflow-hidden relative cursor-pointer group shrink-0"
                 >
@@ -240,10 +282,10 @@ export default function BoardPage({
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between text-[10px] font-mono text-[#737373]">
                       <span>POSTED BY {b.creator.substring(0, 6)}...</span>
-                      <span>{b.claimer?.length || 0} WORKERS CLAIMED</span>
+                      <span>{b.total_claims || 0} WORKER(S) CLAIMED</span>
                     </div>
 
-                    <h3 
+                    <h3
                       onClick={() => navigate(`#/bounties/${b.bounty_id}`)}
                       className="font-display font-bold text-base text-white hover:text-[#a3e635] transition-colors leading-snug line-clamp-2 uppercase cursor-pointer"
                     >
@@ -278,7 +320,7 @@ export default function BoardPage({
                     {b.status === "completed" ? (
                       <button
                         onClick={() => navigate(`#/bounties/${b.bounty_id}`)}
-                        className="w-full bg-[#1f1f1f] text-[#737373] text-xs font-display font-bold py-3 uppercase tracking-wider text-center cursor-pointer hover:bg-[#252525] hover:text-white transition-colors"
+                        className="w-full bg-[#1f1f1f] text-[#737373] text-xs font-display font-bold py-3 uppercase tracking-wider"
                         style={{ borderRadius: "0px" }}
                       >
                         VIEW DETAILS (COMPLETED ✓)
@@ -286,25 +328,41 @@ export default function BoardPage({
                     ) : isClaimedByMe ? (
                       <button
                         onClick={() => navigate(`#/bounties/${b.bounty_id}`)}
-                        className="w-full bg-transparent border border-white hover:bg-white/10 text-white text-xs font-display font-bold py-3 uppercase tracking-wider text-center cursor-pointer transition-colors"
+                        className="w-full bg-transparent border border-white text-white text-xs font-display font-bold py-3 uppercase tracking-wider"
                         style={{ borderRadius: "0px" }}
                       >
                         SUBMIT PROOF (CLAIMED ✓)
                       </button>
+                    ) : isCreator ? (
+                      <button
+                        disabled
+                        className="w-full bg-[#1a1a1a] text-[#555555] border border-[#2a2a2a] text-xs font-display font-bold py-3 uppercase tracking-wider cursor-not-allowed"
+                        style={{ borderRadius: "0px" }}
+                      >
+                        YOUR BOUNTY — CAN’T CLAIM
+                      </button>
+                    ) : isExpired || b.status !== "open" ? (
+                      <button
+                        disabled
+                        className="w-full bg-[#1a1a1a] text-[#555555] border border-[#2a2a2a] text-xs font-display font-bold py-3 uppercase tracking-wider cursor-not-allowed"
+                        style={{ borderRadius: "0px" }}
+                      >
+                        {isExpired ? "EXPIRED" : "UNAVAILABLE"}
+                      </button>
                     ) : (
                       <button
-                        onClick={async () => {
-                          if (!wallet) {
-                            onConnectWallet();
-                          } else {
-                            await onClaim(b.bounty_id);
-                          }
+                        onClick={() => {
+                          if (!wallet) onConnectWallet();
+                          else onClaim(b.bounty_id);
                         }}
-                        className="w-full bg-[#a3e635] hover:bg-[#bbf7d0] text-black text-xs font-display font-bold py-3 uppercase tracking-wider text-center cursor-pointer transition-colors"
+                        disabled={!canClaim && !!wallet}
+                        className={`w-full text-xs font-display font-bold py-3 uppercase tracking-wider transition-colors ${!wallet || canClaim
+                            ? "bg-[#a3e635] hover:bg-[#bbf7d0] text-black cursor-pointer"
+                            : "bg-[#1a1a1a] text-[#555555] border border-[#2a2a2a] cursor-not-allowed"
+                          }`}
                         style={{ borderRadius: "0px" }}
-                        disabled={isClaimingBounty || b.creator.toLowerCase() === wallet?.toLowerCase() || b.status !== "open"}
                       >
-                        {isClaimingBounty ? "CLAIMING..." : "CLAIM JOB →"}
+                        {isClaimingBounty ? "CLAIMING..." : !wallet ? "CONNECT TO CLAIM →" : "CLAIM JOB →"}
                       </button>
                     )}
                   </div>
