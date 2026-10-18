@@ -5,7 +5,7 @@ import { TransactionStatus } from "genlayer-js/types";
 import { parseEther } from "viem";
 
 /**
- * FootballBets contract class for interacting with the GenLayer Football Betting contract
+ * CleanCity contract class for interacting with the GenLayer Clean City contract
  */
 class CleanCity {
   private contractAddress: `0x${string}`;
@@ -100,6 +100,52 @@ class CleanCity {
     }
   }
 
+  async hasClaimed(bountyId: string, wallet: string): Promise<Boolean> {
+    try {
+      const has_claimed = await this.client.readContract({
+        address: this.contractAddress,
+        functionName: "has_claimed",
+        args: [bountyId, wallet]
+      });
+
+
+      return Boolean(has_claimed);
+    } catch (error) {
+      console.error("Error: ", error);
+      throw new Error("Failed to check");
+    }
+  }
+
+  async getWorkerClaimedBountyIds(workerId: string): Promise<string[]> {
+    try {
+      const bountyIds = await this.client.readContract({
+        address: this.contractAddress,
+        functionName: "get_worker_claimed_bounty_ids",
+        args: [workerId]
+      });
+
+      return bountyIds as string[];
+    } catch (error) {
+      console.error("Error fetching worker claims: ", error);
+      throw new Error("Failed to fetch worker claims");
+    }
+  }
+
+  async getWorkerSubmission(bountyId: string, workerId: string): Promise<string> {
+    try {
+      const submissionId = await this.client.readContract({
+        address: this.contractAddress,
+        functionName: "get_worker_submission",
+        args: [bountyId, workerId]
+      });
+
+      return submissionId as string;
+    } catch (error) {
+      console.error("Error fetching worker submission: ", error);
+      throw new Error("Failed to fetch worker submission");
+    }
+  }
+
   async getSubmission(submission_id: string): Promise<Submission> {
     try {
       const submission = await this.client.readContract({
@@ -175,7 +221,7 @@ class CleanCity {
         address: this.contractAddress,
         functionName: "create_bounty",
         args: [title, description, location_description, category, before_image_url, reward_gen, duration_seconds, max_workers],
-        value: parseEther(reward_gen.toString())
+        value: parseEther(reward_gen.toString()) * BigInt(max_workers)
 
       });
 

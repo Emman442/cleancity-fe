@@ -2,22 +2,14 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import FootballBets from "../contracts/CleanCity";
+import CleanCity from "../contracts/CleanCity";
 import { getContractAddress, getStudioUrl } from "../genlayer/client";
 import { useWallet } from "../genlayer/wallet";
 import { success, error, configError } from "../utils/toast";
 import type { Bounty, Submission, WorkerProfile } from "../contracts/types";
 
-/**
- * Hook to get the FootballBets contract instance
- *
- * Returns null if contract address is not configured.
- * The contract instance is recreated whenever the wallet address changes.
- * Read-only operations (getBets, getLeaderboard, etc.) work without a connected wallet.
- * Write operations (createBet, resolveBet) require a connected wallet and will fail
- * if the address is null. Defensive validation is added in the mutation hooks.
- */
-export function useCleanCityContract(): FootballBets | null {
+
+export function useCleanCityContract(): CleanCity | null {
   const { address } = useWallet();
   const contractAddress = getContractAddress();
   const studioUrl = getStudioUrl();
@@ -39,7 +31,7 @@ export function useCleanCityContract(): FootballBets | null {
 
     // Contract instance is recreated when address changes to ensure
     // the genlayer-js client is properly configured with the current account
-    return new FootballBets(contractAddress, address, studioUrl);
+    return new CleanCity(contractAddress, address, studioUrl);
   }, [contractAddress, address, studioUrl]);
 
   return contract;
@@ -79,6 +71,23 @@ export function useBounties() {
   });
 }
 
+export function useWorkerClaimedBountyIds(wallet: string | null) {
+  const contract = useCleanCityContract();
+
+  return useQuery<string[], Error>({
+    queryKey: ["workerClaimedBountyIds", wallet],
+    queryFn: () => {
+      if (!contract || !wallet) {
+        throw new Error("Contract or wallet not initialized");
+      }
+      return contract.getWorkerClaimedBountyIds(wallet);
+    },
+    refetchOnWindowFocus: true,
+    staleTime: 2000,
+    enabled: !!contract && !!wallet,
+  });
+}
+
 
 export function useBounty(bountyId: string) {
   const contract = useCleanCityContract();
@@ -93,6 +102,23 @@ export function useBounty(bountyId: string) {
     },
     refetchOnWindowFocus: true,
     enabled: !!bountyId && !!contract, // Require both address and contract
+    staleTime: 2000,
+  });
+}
+
+export function useHasClaimed(bountyId: string, wallet: string | null) {
+  const contract = useCleanCityContract();
+
+  return useQuery<Boolean, Error>({
+    queryKey: ["hasClaimed", bountyId, wallet],
+    queryFn: () => {
+      if (!contract || !wallet) {
+        return Promise.resolve(false);
+      }
+      return contract.hasClaimed(bountyId, wallet);
+    },
+    refetchOnWindowFocus: true,
+    enabled: !!bountyId && !!wallet && !!contract,
     staleTime: 2000,
   });
 }
@@ -154,7 +180,13 @@ export function useClaimBounty() {
 
     onSuccess: async (_, variables) => {
       await queryClient.invalidateQueries({
+        queryKey: ["bounties"],
+      });
+      await queryClient.invalidateQueries({
         queryKey: ["bounty", variables.bounty_id],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["workerClaimedBountyIds"],
       });
     },
     onError: async (error: any) => {
@@ -250,6 +282,9 @@ export function useSubmitProof() {
       await queryClient.invalidateQueries({
         queryKey: ["bounty", variables.bounty_id],
       });
+      await queryClient.invalidateQueries({
+        queryKey: ["worker_submissions"],
+      });
     },
     onError: async (error: any) => {
       console.error("Error submitting proof:", error);
@@ -287,6 +322,9 @@ export function useAppealRejection() {
       });
       await queryClient.invalidateQueries({
         queryKey: ["bounty", variables.submission_id],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["worker_submissions"],
       });
     },
     onError: async (error: any) => {

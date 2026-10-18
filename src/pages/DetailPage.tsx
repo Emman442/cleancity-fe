@@ -11,26 +11,28 @@ import {
   Check,
 } from "lucide-react";
 import { Bounty, Category, Verdict } from "../lib/contracts/types";
-import { useSubmitProof, useGenerateSessionToken, useSubmission, useAppealRejection } from "../lib/hooks/useCleanCity";
+import { useSubmitProof, useGenerateSessionToken, useAppealRejection, useHasClaimed } from "../lib/hooks/useCleanCity";
 import { extractSessionToken } from "../lib/utils/generateSessionToken";
 import { uploadImage } from "../lib/utils/uploadImage";
-
+import { getAddress } from 'viem';
 import { useCleanCityContract } from "../lib/hooks/useCleanCity";
 import { extractSubmissionId } from "../lib/utils/extractSubmissionId";
 
 interface DetailPageProps {
   bountyId: string;
   bounties: Bounty[];
+  claimedBountyIds: string[];
   wallet: string | null;
   onBack: () => void;
-  onClaim: (id: string) => Promise<void>;
+  onClaim: (id: string) => void;
   onConnectWallet: () => void;
-  showToast: (title: string, message: string, type: "success" | "error" | "info") => void;
+  showToast: (title: string, message: string, type: "success" | "error" | "warning") => void;
 }
 
 export default function DetailPage({
   bountyId,
   bounties,
+  claimedBountyIds,
   wallet,
   onBack,
   onClaim,
@@ -38,7 +40,7 @@ export default function DetailPage({
   showToast
 }: DetailPageProps) {
   const bounty = bounties.find((b) => b.bounty_id === bountyId);
-
+  console.log(bounty)
   const contract = useCleanCityContract();
   const [token, setToken] = useState<string>("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -54,6 +56,10 @@ export default function DetailPage({
   const [appealContext, setAppealContext] = useState("");
   const [appealImagePreview, setAppealImagePreview] = useState<string | null>(null);
   const appealFileInputRef = useRef<HTMLInputElement>(null);
+  const {data: isClaimedByMe} = useHasClaimed(bountyId, getAddress(wallet!))
+  console.log(isClaimedByMe)
+  console.log(wallet)
+
 
 
   const [statusMsgIndex, setStatusMsgIndex] = useState(0);
@@ -69,10 +75,7 @@ export default function DetailPage({
   const { isPending: isSubmittingProof, mutate: submitProof } = useSubmitProof();
   const { isPending: isGeneratingSessionToken, mutate: generateToken } = useGenerateSessionToken()
 
-  const isClaimedByMe =
-    !!wallet &&
-    !!bounty?.claimer &&
-    bounty.claimer.toLowerCase() === wallet.toLowerCase();
+
 
   useEffect(() => {
     if (wallet && bounty) {
@@ -254,7 +257,11 @@ export default function DetailPage({
           onSuccess: async () => {
             showToast("Appeal Submitted", "Your appeal is under review", "success");
             const submission = await contract?.getSubmission(submissionId);
-            setVerdict(submission?.ai_verdict as Verdict || "pending");
+            setVerdict(
+              submission?.ai_verdict === "pending"
+                ? "PENDING"
+                : submission?.ai_verdict || "PENDING"
+            );
             setReasoning(submission?.ai_reasoning || "No reasoning provided yet.");
             setConfidence(submission?.ai_confidence as any || "low");
             setShowAppealForm(false);
@@ -294,17 +301,15 @@ export default function DetailPage({
           onSuccess: async (result) => {
             try {
 
-              const submissionId =
-                extractSubmissionId(result) ||
-                (await contract?.getBounty(bountyId))?.submission_id;
-              "";
+              const submissionId = extractSubmissionId(result);
 
               let finalSubmissionId = submissionId;
 
               if (!finalSubmissionId) {
                 await new Promise((r) => setTimeout(r, 1500));
-                const b = await contract?.getBounty(bountyId);
-                finalSubmissionId = b?.submission_id;
+                if (contract && wallet) {
+                  finalSubmissionId = await contract.getWorkerSubmission(bountyId, wallet);
+                }
               }
 
 
@@ -319,7 +324,11 @@ export default function DetailPage({
               setSubmissionId(finalSubmissionId);
 
               const submission = await contract?.getSubmission(finalSubmissionId);
-              setVerdict(submission?.ai_verdict as Verdict || "pending");
+              setVerdict(
+                submission?.ai_verdict === "pending"
+                  ? "PENDING"
+                  : submission?.ai_verdict || "PENDING"
+              );
               setReasoning(submission?.ai_reasoning || "No reasoning provided yet.");
               setConfidence(submission?.ai_confidence as any || "low");
             } catch (e) {
